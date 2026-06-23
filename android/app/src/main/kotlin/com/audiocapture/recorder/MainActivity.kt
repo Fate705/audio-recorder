@@ -14,16 +14,9 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * MainActivity
- *
- * Menjadi jembatan antara UI Flutter (Dart) dan native Android.
- * Menggunakan MethodChannel untuk komunikasi dua arah.
- *
- * Alur:
- * 1. Flutter memanggil "startRecording"
- * 2. MainActivity meminta izin MediaProjection dari sistem (dialog muncul)
- * 3. Setelah user setuju, AudioCaptureService dimulai sebagai Foreground Service
- * 4. Service memanggil balik Flutter lewat MethodChannel saat status berubah
+ * FIX: Race condition diperbaiki.
+ * Dulu: Service langsung rekam di onStartCommand → channel belum terhubung → callback hilang
+ * Sekarang: Service hanya startForeground di onStartCommand, rekaman dimulai SETELAH binding selesai
  */
 class MainActivity : FlutterActivity() {
 
@@ -37,15 +30,25 @@ class MainActivity : FlutterActivity() {
     private var audioService: AudioCaptureService? = null
     private var isServiceBound = false
 
-    // ServiceConnection: dipanggil saat service terhubung/terputus
+    // Simpan token MediaProjection sampai binding selesai
+    private var pendingResultCode: Int = -1
+    private var pendingResultData: Intent? = null
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val localBinder = binder as AudioCaptureService.LocalBinder
             audioService = localBinder.getService()
             isServiceBound = true
 
-            // Berikan referensi channel ke service agar bisa callback ke Flutter
+            // Set channel DULU, baru mulai rekam — ini kunci fix race condition
             audioService?.setMethodChannel(methodChannel)
+
+            // Sekarang aman untuk mulai rekam
+            if (pendingResultCode != -1 && pendingResultData != null) {
+                audioService?.initMediaProjection(pendingResultCode, pendingResultData!!)
+                pendingResultCode = -1
+                pendingResultData = null
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -71,21 +74,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /**
-     * Mulai rekaman:
-     * 1. Minta izin MediaProjection (WAJIB, tidak bisa dilewati)
-     * 2. Setelah dapat izin, start Foreground Service
-     */
     private fun handleStartRecording(result: MethodChannel.Result) {
         pendingResult = result
-
         val mediaProjectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-
-        // Tampilkan dialog izin MediaProjection ke user
-        // Dialog ini menjelaskan bahwa app akan merekam layar/audio
-        val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
-        startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION)
+        startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
     }
 
     private fun handleStopRecording(result: MethodChannel.Result) {
@@ -97,49 +90,41 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /**
-     * Callback setelah user menyetujui/menolak dialog MediaProjection
-     */
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == Activity.RESULT_OK && data != null) {
-                // User menyetujui → start Foreground Service dengan token MediaProjection
-                startAudioCaptureService(resultCode, data)
+                // Simpan token dulu
+                pendingResultCode = resultCode
+                pendingResultData = data
+
+                // Start service (hanya untuk foreground notification)
+                val serviceIntent = Intent(this, AudioCaptureService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+
+                // Bind — onServiceConnected akan mulai rekaman setelah channel siap
+                bindService(
+                    Intent(this, AudioCaptureService::class.java),
+                    serviceConnection,
+                    Context.BIND_AUTO_CREATE
+                )
+
                 pendingResult?.success(null)
             } else {
-                // User menolak dialog
                 pendingResult?.error(
                     "PERMISSION_DENIED",
-                    "Izin MediaProjection ditolak. Aplikasi tidak bisa merekam audio internal tanpa izin ini.",
+                    "Izin MediaProjection ditolak",
                     null
                 )
             }
             pendingResult = null
         }
-    }
-
-    private fun startAudioCaptureService(resultCode: Int, data: Intent) {
-        val serviceIntent = Intent(this, AudioCaptureService::class.java).apply {
-            putExtra(AudioCaptureService.EXTRA_RESULT_CODE, resultCode)
-            putExtra(AudioCaptureService.EXTRA_RESULT_DATA, data)
-        }
-
-        // Android 8+ wajib pakai startForegroundService untuk service dengan notifikasi
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-
-        // Bind ke service agar bisa komunikasi dua arah
-        bindService(
-            Intent(this, AudioCaptureService::class.java),
-            serviceConnection,
-            Context.BIND_AUTO_CREATE
-        )
     }
 
     override fun onDestroy() {
