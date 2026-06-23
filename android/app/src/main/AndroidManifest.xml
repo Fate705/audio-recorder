@@ -32,7 +32,7 @@
     <application
         android:label="Audio Recorder"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@android:drawable/ic_btn_speak_now"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:requestLegacyExternalStorage="true">
