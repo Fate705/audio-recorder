@@ -393,12 +393,12 @@ class AudioCaptureService : Service() {
         // fmt sub-chunk
         raf.writeBytes("fmt ")
         raf.writeInt(Integer.reverseBytes(16))       // Sub-chunk size
-        raf.writeShort(java.lang.Short.reverseBytes(1))   // PCM format
-        raf.writeShort(java.lang.Short.reverseBytes(numChannels.toShort()))
+        raf.writeShort(java.lang.Short.reverseBytes(1).toInt())   // PCM format
+        raf.writeShort(java.lang.Short.reverseBytes(numChannels.toShort()).toInt())
         raf.writeInt(Integer.reverseBytes(SAMPLE_RATE))
         raf.writeInt(Integer.reverseBytes((SAMPLE_RATE * numChannels * BITS_PER_SAMPLE / 8).toInt()))
-        raf.writeShort(java.lang.Short.reverseBytes((numChannels * BITS_PER_SAMPLE / 8).toShort()))
-        raf.writeShort(java.lang.Short.reverseBytes(BITS_PER_SAMPLE.toShort()))
+        raf.writeShort(java.lang.Short.reverseBytes((numChannels * BITS_PER_SAMPLE / 8).toShort()).toInt())
+        raf.writeShort(java.lang.Short.reverseBytes(BITS_PER_SAMPLE.toShort()).toInt())
 
         // data sub-chunk
         raf.writeBytes("data")
