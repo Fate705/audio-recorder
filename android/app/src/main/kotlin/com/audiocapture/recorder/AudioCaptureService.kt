@@ -44,9 +44,6 @@ class AudioCaptureService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val NOTIFICATION_CHANNEL_ID = "audio_capture_channel"
 
-        const val EXTRA_RESULT_CODE = "result_code"
-        const val EXTRA_RESULT_DATA = "result_data"
-
         // Audio config — harus konsisten antara AudioRecord dan AudioTrack
         private const val SAMPLE_RATE = 44100          // Hz (standar CD quality)
         private const val CHANNEL_COUNT = 2            // Stereo
@@ -88,27 +85,17 @@ class AudioCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Mulai sebagai Foreground Service SEGERA (wajib dalam 5 detik)
+        // HANYA startForeground di sini — rekaman dimulai setelah MainActivity bind selesai
+        // Ini mencegah race condition di mana callback ke Flutter hilang karena channel belum siap
         startForeground(NOTIFICATION_ID, buildNotification("Menyiapkan rekaman..."))
-
-        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, -1) ?: -1
-        val resultData = intent?.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
-
-        if (resultCode == -1 || resultData == null) {
-            Log.e(TAG, "MediaProjection token tidak valid")
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
-        initMediaProjection(resultCode, resultData)
-
         return START_NOT_STICKY
     }
 
     /**
-     * Inisialisasi MediaProjection dengan token yang didapat dari dialog izin user
+     * Dipanggil oleh MainActivity SETELAH binding selesai dan channel sudah di-set
+     * Sehingga callback ke Flutter dijamin sampai
      */
-    private fun initMediaProjection(resultCode: Int, resultData: Intent) {
+    fun initMediaProjection(resultCode: Int, resultData: Intent) {
         val mediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
