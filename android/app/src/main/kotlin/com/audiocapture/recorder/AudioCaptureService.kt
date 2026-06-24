@@ -128,41 +128,38 @@ class AudioCaptureService : Service() {
     fun startRecording() {
         if (isRecording.get()) return
 
-        try {
-            // Buat nama file dengan timestamp
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                .format(Date())
-            val dir = getOutputDirectory()
-            outputFile = File(dir, "AudioCapture_$timestamp.wav")
+        // Jalankan setup di background thread agar UI tidak freeze
+        Thread {
+            try {
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                    .format(Date())
+                val dir = getOutputDirectory()
+                outputFile = File(dir, "AudioCapture_$timestamp.wav")
 
-            Log.d(TAG, "Output file: ${outputFile!!.absolutePath}")
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    notifyError("Android 10+ diperlukan untuk merekam audio internal")
+                    return@Thread
+                }
 
-            // Setup AudioRecord untuk Mikrofon
-            setupMicRecorder()
-
-            // Setup AudioRecord untuk Internal Audio (hanya Android 10+)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setupMicRecorder()
                 setupInternalAudioRecorder()
-            } else {
-                Log.w(TAG, "Android < 10: AudioPlaybackCapture tidak tersedia, hanya mic")
-                notifyError("Android 10+ diperlukan untuk merekam audio internal")
-                return
+
+                isRecording.set(true)
+
+                // Notify Flutter SEKARANG — jangan tunggu thread rekaman selesai setup
+                // Ini yang membuat UI langsung responsif
+                updateNotification("⏺ Merekam Audio Internal + Mic...")
+                notifyStarted()
+
+                // Baru mulai thread rekaman setelah UI sudah update
+                startRecordingThreads()
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saat memulai rekaman: ${e.message}", e)
+                cleanup()
+                notifyError(e.message ?: "Error tidak diketahui")
             }
-
-            isRecording.set(true)
-
-            // Mulai thread rekaman
-            startRecordingThreads()
-
-            // Update notifikasi
-            updateNotification("⏺ Merekam Audio Internal + Mic...")
-            notifyStarted()
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saat memulai rekaman: ${e.message}", e)
-            cleanup()
-            notifyError(e.message ?: "Error tidak diketahui")
-        }
+        }.also { it.name = "SetupThread"; it.start() }
     }
 
     /**
