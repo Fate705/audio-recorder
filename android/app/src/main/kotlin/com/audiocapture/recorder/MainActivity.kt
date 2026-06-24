@@ -26,7 +26,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private var methodChannel: MethodChannel? = null
-    private var pendingResult: MethodChannel.Result? = null
     private var audioService: AudioCaptureService? = null
     private var isServiceBound = false
 
@@ -75,7 +74,9 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleStartRecording(result: MethodChannel.Result) {
-        pendingResult = result
+        // Langsung balik ke Flutter — jangan tunggu dialog
+        // Flutter akan update status "Setujui dialog..." dan tunggu callback onRecordingStarted
+        result.success(null)
         val mediaProjectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
@@ -96,11 +97,9 @@ class MainActivity : FlutterActivity() {
 
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == Activity.RESULT_OK && data != null) {
-                // Simpan token dulu
                 pendingResultCode = resultCode
                 pendingResultData = data
 
-                // Start service (hanya untuk foreground notification)
                 val serviceIntent = Intent(this, AudioCaptureService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(serviceIntent)
@@ -108,22 +107,15 @@ class MainActivity : FlutterActivity() {
                     startService(serviceIntent)
                 }
 
-                // Bind — onServiceConnected akan mulai rekaman setelah channel siap
                 bindService(
                     Intent(this, AudioCaptureService::class.java),
                     serviceConnection,
                     Context.BIND_AUTO_CREATE
                 )
-
-                pendingResult?.success(null)
             } else {
-                pendingResult?.error(
-                    "PERMISSION_DENIED",
-                    "Izin MediaProjection ditolak",
-                    null
-                )
+                // Dialog ditolak — kirim error lewat callback, bukan pendingResult
+                methodChannel?.invokeMethod("onError", "Izin MediaProjection ditolak")
             }
-            pendingResult = null
         }
     }
 
