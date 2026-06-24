@@ -85,9 +85,18 @@ class AudioCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // HANYA startForeground di sini — rekaman dimulai setelah MainActivity bind selesai
-        // Ini mencegah race condition di mana callback ke Flutter hilang karena channel belum siap
-        startForeground(NOTIFICATION_ID, buildNotification("Menyiapkan rekaman..."))
+        val notification = buildNotification("Menyiapkan rekaman...")
+        // Android 10+ wajib deklarasikan tipe foreground service saat startForeground
+        // Tanpa ini, di Android 14 bisa crash atau token MediaProjection di-reject
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
         return START_NOT_STICKY
     }
 
