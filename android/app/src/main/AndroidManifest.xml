@@ -64,7 +64,7 @@
             android:name=".AudioCaptureService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|microphone" />
 
         <meta-data
             android:name="flutterEmbedding"
