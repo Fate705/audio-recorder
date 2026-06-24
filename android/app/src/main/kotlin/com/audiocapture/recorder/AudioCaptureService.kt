@@ -485,7 +485,10 @@ class AudioCaptureService : Service() {
     }
 
     private fun notifyError(message: String) {
+        Log.e(TAG, "notifyError: $message")
         android.os.Handler(mainLooper).post {
+            // Toast sebagai fallback — kelihatan meski MethodChannel gagal
+            android.widget.Toast.makeText(this, "❌ $message", android.widget.Toast.LENGTH_LONG).show()
             methodChannel?.invokeMethod("onError", message)
             cleanup()
             stopSelf()
