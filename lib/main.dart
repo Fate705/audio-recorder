@@ -173,7 +173,14 @@ class _RecorderScreenState extends State<RecorderScreen>
     }
 
     try {
+      // invokeMethod sekarang langsung return — tidak nunggu dialog
       await _channel.invokeMethod('startRecording');
+      // Update status biar user tahu harus approve dialog
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Setujui dialog rekaman yang muncul...';
+        });
+      }
     } on PlatformException catch (e) {
       setState(() {
         _isLoading = false;
