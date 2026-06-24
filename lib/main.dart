@@ -42,7 +42,8 @@ class _RecorderScreenState extends State<RecorderScreen>
       MethodChannel('com.audiocapture.recorder/audio');
 
   bool _isRecording = false;
-  bool _isLoading = false;
+  bool _isLoading = false;    // hanya saat menyimpan file
+  bool _isPreparing = false;  // nunggu dialog/start — tombol tetap keliatan normal
   String _statusMessage = 'Siap merekam';
   String? _lastFilePath;
   Duration _recordDuration = Duration.zero;
@@ -72,6 +73,7 @@ class _RecorderScreenState extends State<RecorderScreen>
           setState(() {
             _isRecording = true;
             _isLoading = false;
+            _isPreparing = false;
             _statusMessage = 'Sedang merekam...';
           });
           _startTimer();
@@ -98,6 +100,7 @@ class _RecorderScreenState extends State<RecorderScreen>
           setState(() {
             _isRecording = false;
             _isLoading = false;
+            _isPreparing = false;
             _statusMessage = 'Error: $error';
           });
           _stopTimer();
@@ -155,35 +158,33 @@ class _RecorderScreenState extends State<RecorderScreen>
   }
 
   Future<void> _startRecording() async {
-    if (_isLoading || _isRecording) return;
+    if (_isLoading || _isRecording || _isPreparing) return;
 
     setState(() {
-      _isLoading = true;
-      _statusMessage = 'Meminta izin MediaProjection...';
+      _isPreparing = true;
+      _statusMessage = 'Memeriksa izin...';
     });
     _addLog('🎙️ Memulai proses rekaman...');
 
     final permitted = await _requestPermissions();
     if (!permitted) {
       setState(() {
-        _isLoading = false;
+        _isPreparing = false;
         _statusMessage = 'Izin ditolak';
       });
       return;
     }
 
     try {
-      // invokeMethod sekarang langsung return — tidak nunggu dialog
       await _channel.invokeMethod('startRecording');
-      // Update status biar user tahu harus approve dialog
       if (mounted) {
         setState(() {
-          _statusMessage = 'Setujui dialog rekaman yang muncul...';
+          _statusMessage = '⬆ Setujui dialog rekaman yang muncul...';
         });
       }
     } on PlatformException catch (e) {
       setState(() {
-        _isLoading = false;
+        _isPreparing = false;
         _statusMessage = 'Gagal: ${e.message}';
       });
       _addLog('❌ ${e.message}');
@@ -332,7 +333,7 @@ class _RecorderScreenState extends State<RecorderScreen>
           child: GestureDetector(
             onTap: _isLoading
                 ? null
-                : (_isRecording ? _stopRecording : _startRecording),
+                : (_isRecording ? _stopRecording : (_isPreparing ? null : _startRecording)),
             child: Container(
               width: 160,
               height: 160,
@@ -353,6 +354,7 @@ class _RecorderScreenState extends State<RecorderScreen>
                   ),
                 ],
               ),
+              // Hanya spinner saat menyimpan file (_isLoading), bukan saat nunggu dialog
               child: _isLoading
                   ? const Center(
                       child: CircularProgressIndicator(color: Colors.white),
@@ -362,12 +364,12 @@ class _RecorderScreenState extends State<RecorderScreen>
                       children: [
                         Icon(
                           _isRecording ? Icons.stop : Icons.mic,
-                          color: Colors.white,
+                          color: _isPreparing ? Colors.white70 : Colors.white,
                           size: 48,
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          _isRecording ? 'BERHENTI' : 'REKAM',
+                          _isRecording ? 'BERHENTI' : (_isPreparing ? 'TUNGGU' : 'REKAM'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
