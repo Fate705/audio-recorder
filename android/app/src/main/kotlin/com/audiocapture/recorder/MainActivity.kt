@@ -14,9 +14,15 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * FIX: Race condition diperbaiki.
- * Dulu: Service langsung rekam di onStartCommand → channel belum terhubung → callback hilang
- * Sekarang: Service hanya startForeground di onStartCommand, rekaman dimulai SETELAH binding selesai
+ * ARSITEKTUR BARU (Android 14+ compatible):
+ *
+ * Urutan yang BENAR untuk MediaProjection di Android 14+:
+ * 1. Start foreground service DULU (wajib sebelum dialog)
+ * 2. Tunggu service bound (onServiceConnected)
+ * 3. BARU tampilkan dialog MediaProjection
+ * 4. Setelah user setujui → pass token ke service → mulai rekam
+ *
+ * Sebelumnya: dialog ditampilkan SEBELUM service jalan → Android 14 reject token
  */
 class MainActivity : FlutterActivity() {
 
@@ -28,10 +34,7 @@ class MainActivity : FlutterActivity() {
     private var methodChannel: MethodChannel? = null
     private var audioService: AudioCaptureService? = null
     private var isServiceBound = false
-
-    // Simpan token MediaProjection sampai binding selesai
-    private var pendingResultCode: Int = -1
-    private var pendingResultData: Intent? = null
+    private var pendingShowDialog = false  // flag: tampilkan dialog setelah service bound
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -39,14 +42,12 @@ class MainActivity : FlutterActivity() {
             audioService = localBinder.getService()
             isServiceBound = true
 
-            // Set channel DULU, baru mulai rekam — ini kunci fix race condition
             audioService?.setMethodChannel(methodChannel)
 
-            // Sekarang aman untuk mulai rekam
-            if (pendingResultCode != -1 && pendingResultData != null) {
-                audioService?.initMediaProjection(pendingResultCode, pendingResultData!!)
-                pendingResultCode = -1
-                pendingResultData = null
+            // Service sudah jalan sebagai foreground → SEKARANG aman tampilkan dialog
+            if (pendingShowDialog) {
+                pendingShowDialog = false
+                showMediaProjectionDialog()
             }
         }
 
@@ -74,12 +75,41 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleStartRecording(result: MethodChannel.Result) {
-        // Langsung balik ke Flutter — jangan tunggu dialog
-        // Flutter akan update status "Setujui dialog..." dan tunggu callback onRecordingStarted
+        // Langsung balik ke Flutter — UI tidak freeze
         result.success(null)
+
+        // Step 1: Start foreground service DULU (wajib Android 14+)
+        val serviceIntent = Intent(this, AudioCaptureService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+
+        // Step 2: Bind — setelah onServiceConnected, baru tampilkan dialog
+        pendingShowDialog = true
+        if (isServiceBound) {
+            // Sudah terhubung (rekaman sebelumnya), langsung tampilkan dialog
+            audioService?.setMethodChannel(methodChannel)
+            pendingShowDialog = false
+            showMediaProjectionDialog()
+        } else {
+            bindService(
+                Intent(this, AudioCaptureService::class.java),
+                serviceConnection,
+                Context.BIND_AUTO_CREATE
+            )
+        }
+    }
+
+    private fun showMediaProjectionDialog() {
+        // Step 3: Dialog muncul SETELAH service foreground sudah jalan
         val mediaProjectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
+        startActivityForResult(
+            mediaProjectionManager.createScreenCaptureIntent(),
+            REQUEST_MEDIA_PROJECTION
+        )
     }
 
     private fun handleStopRecording(result: MethodChannel.Result) {
@@ -97,23 +127,10 @@ class MainActivity : FlutterActivity() {
 
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == Activity.RESULT_OK && data != null) {
-                pendingResultCode = resultCode
-                pendingResultData = data
-
-                val serviceIntent = Intent(this, AudioCaptureService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
-
-                bindService(
-                    Intent(this, AudioCaptureService::class.java),
-                    serviceConnection,
-                    Context.BIND_AUTO_CREATE
-                )
+                // Step 4: Pass token ke service → mulai rekam
+                audioService?.initMediaProjection(resultCode, data)
             } else {
-                // Dialog ditolak — kirim error lewat callback, bukan pendingResult
+                // User menolak dialog
                 methodChannel?.invokeMethod("onError", "Izin MediaProjection ditolak")
             }
         }
