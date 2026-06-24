@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -385,7 +386,9 @@ class _RecorderScreenState extends State<RecorderScreen>
           ),
         ),
         if (_isRecording) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
+          _buildTimerDisplay(),
+          const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -396,6 +399,67 @@ class _RecorderScreenState extends State<RecorderScreen>
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildTimerDisplay() {
+    final h = _recordDuration.inHours;
+    final m = (_recordDuration.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (_recordDuration.inSeconds % 60).toString().padLeft(2, '0');
+    final timeStr = h > 0 ? '${h.toString().padLeft(2, '0')}:$m:$s' : '$m:$s';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A0000),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.withOpacity(0.4), width: 1.5),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (_, child) => Opacity(
+                  opacity: _pulseAnimation.value > 1.07 ? 1.0 : 0.3,
+                  child: child,
+                ),
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'REC',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            timeStr,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 52,
+              fontWeight: FontWeight.w300,
+              letterSpacing: 4,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
